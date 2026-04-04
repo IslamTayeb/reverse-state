@@ -113,6 +113,31 @@ state tx infer \
 
 If `--output` ends with `.npy`, only the predictions matrix is written (no .h5ad).
 
+### optimize
+
+Ranks candidate single drugs and additive pairs on control cohorts from a new AnnData, maximizing
+target-cell transcriptional change while penalizing healthy/off-target change. The command can also
+optimize continuous perturbation vectors and snap them back to the nearest real compounds.
+
+```bash
+state tx optimize \
+  --model-dir /path/to/run \
+  --adata /path/to/control_cells.h5ad \
+  --pert-col drugname_drugconc \
+  --celltype-col cell_type \
+  --target-celltypes tumor \
+  --healthy-celltypes tcell,bcell \
+  --pair-mode topk \
+  --pair-topk 16 \
+  --continuous-steps 200 \
+  --optimize-pair \
+  --output /path/to/ranked_candidates.tsv
+```
+
+The TSV includes discrete singles, additive pairs, and any retrieved nearest-neighbor compounds from
+continuous optimization. When `--continuous-steps > 0`, a sidecar `.continuous.pt` file stores the
+raw optimized perturbation vectors and optimization history.
+
 ### ST TOML configuration
 
 The TOML file referenced by `data.kwargs.toml_config_path` defines dataset paths and splits.
