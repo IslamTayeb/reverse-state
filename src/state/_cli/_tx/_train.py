@@ -3,6 +3,12 @@ import argparse as ap
 from omegaconf import DictConfig, OmegaConf
 
 
+def decoder_required_for_output_space(embed_key: str | None, output_space: str) -> bool:
+    return (embed_key is not None and embed_key != "X_hvg" and output_space == "gene") or (
+        embed_key is not None and output_space == "all"
+    )
+
+
 def add_arguments_train(parser: ap.ArgumentParser):
     # Allow remaining args to be passed through to Hydra
     parser.add_argument("hydra_overrides", nargs="*", help="Hydra configuration overrides (e.g., data.batch_size=32)")
@@ -136,6 +142,9 @@ def run_tx_train(cfg: DictConfig):
         gene_dim = var_dims.get("gene_dim", 2000)  # fallback if key missing
     latent_dim = var_dims["output_dim"]  # same as model.output_dim
     hidden_dims = cfg["model"]["kwargs"].get("decoder_hidden_dims", [1024, 1024, 512])
+    embed_key = cfg["data"]["kwargs"].get("embed_key", None)
+    decoder_required = decoder_required_for_output_space(embed_key, output_space)
+    decoder_requested = decoder_required or cfg["model"]["kwargs"].get("finetune_vci_decoder", False)
 
     if output_space in {"gene", "all"}:
         decoder_cfg = dict(
@@ -148,6 +157,7 @@ def run_tx_train(cfg: DictConfig):
 
         # tuck it into the kwargs that will reach the LightningModule
         cfg["model"]["kwargs"]["decoder_cfg"] = decoder_cfg
+        cfg["model"]["kwargs"]["gene_decoder_bool"] = bool(decoder_requested)
     else:
         cfg["model"]["kwargs"].pop("decoder_cfg", None)
         cfg["model"]["kwargs"]["gene_decoder_bool"] = False

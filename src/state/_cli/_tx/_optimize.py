@@ -279,9 +279,19 @@ def run_tx_optimize(args: argparse.Namespace):
         if cohort["batch_indices"] is not None:
             batch["batch"] = cohort["batch_indices"]
 
-        outputs = model.forward(batch, padded=False)
-        preds = outputs[0] if isinstance(outputs, tuple) else outputs
-        return (preds - ctrl).mean(dim=0)
+        outputs = model.predict_step(batch, batch_idx=0, padded=False)
+        if counts_expected and outputs.get("pert_cell_counts_preds") is not None:
+            preds = outputs["pert_cell_counts_preds"]
+        else:
+            preds = outputs["preds"]
+
+        baseline = cohort["score_reference"]
+        if preds.shape != baseline.shape:
+            raise ValueError(
+                "Prediction/reference shape mismatch during optimization: "
+                f"preds={tuple(preds.shape)} vs baseline={tuple(baseline.shape)}"
+            )
+        return (preds - baseline).mean(dim=0)
 
     def score_row_from_deltas(
         candidate_type: str, pert_a: str, pert_b: Optional[str], deltas: Dict[str, torch.Tensor]
@@ -401,11 +411,16 @@ def run_tx_optimize(args: argparse.Namespace):
     model.eval()
     cell_set_len = args.max_set_len if args.max_set_len is not None else getattr(model, "cell_sentence_len", 256)
     uses_batch_encoder = getattr(model, "batch_encoder", None) is not None
+    output_space = getattr(model, "output_space", cfg.get("data", {}).get("kwargs", {}).get("output_space", "gene"))
+    counts_expected = (args.embed_key is not None and args.embed_key != "X_hvg" and output_space == "gene") or (
+        args.embed_key is not None and output_space == "all"
+    )
 
     if not args.quiet:
         print(f"Model device: {device}")
         print(f"Cohort cell cap: {cell_set_len}")
         print(f"Model uses batch encoder: {bool(uses_batch_encoder)}")
+        print(f"Optimization score space: {'gene-counts' if counts_expected else 'model-output'}")
 
     adata = sc.read_h5ad(args.adata)
     if args.celltype_col is None:
@@ -427,6 +442,22 @@ def run_tx_optimize(args: argparse.Namespace):
         if args.embed_key not in adata.obsm:
             raise KeyError(f"Embedding key '{args.embed_key}' not found in adata.obsm")
         X_in = np.asarray(adata.obsm[args.embed_key])
+
+    if counts_expected:
+        if output_space == "gene":
+            if args.embed_key == "X_hvg" or args.embed_key is None:
+                score_reference_matrix = X_in
+            elif "X_hvg" in adata.obsm:
+                score_reference_matrix = np.asarray(adata.obsm["X_hvg"])
+            else:
+                raise KeyError(
+                    "Optimization requires adata.obsm['X_hvg'] when scoring a decoder-backed gene-space model "
+                    f"trained with embed_key={args.embed_key!r}."
+                )
+        else:  # output_space == "all"
+            score_reference_matrix = to_dense(adata.X)
+    else:
+        score_reference_matrix = X_in
 
     if args.pert_col not in adata.obs:
         raise KeyError(f"Perturbation column '{args.pert_col}' not found in adata.obs")
@@ -520,12 +551,14 @@ def run_tx_optimize(args: argparse.Namespace):
             if len(indices) > cell_set_len:
                 indices = np.sort(rng.choice(indices, size=cell_set_len, replace=False))
             ctrl_tensor = torch.tensor(X_in[indices, :], dtype=torch.float32, device=device)
+            score_tensor = torch.tensor(score_reference_matrix[indices, :], dtype=torch.float32, device=device)
             batch_tensor = None
             if uses_batch_encoder and batch_indices_all is not None:
                 batch_tensor = torch.tensor(batch_indices_all[indices], dtype=torch.long, device=device)
             cohorts[group_name] = {
                 "name": group_name,
                 "ctrl_cell_emb": ctrl_tensor,
+                "score_reference": score_tensor,
                 "batch_indices": batch_tensor,
                 "n_cells": int(ctrl_tensor.shape[0]),
             }
