@@ -1,15 +1,9 @@
 from __future__ import annotations
 
-from typing import Mapping, Optional, Sequence
+from typing import Iterable, Mapping, Optional, Sequence
 
 import numpy as np
 import torch
-
-
-def candidate_label(pert_a: str, pert_b: Optional[str] = None) -> str:
-    if pert_b is None or pert_b == "":
-        return str(pert_a)
-    return f"{pert_a} + {pert_b}"
 
 
 def ensure_1d_float_tensor(
@@ -24,93 +18,76 @@ def ensure_1d_float_tensor(
 
     tensor = tensor.reshape(-1)
     if pert_dim is not None and tensor.numel() != pert_dim:
-        raise ValueError(f"Expected perturbation vector with dim {pert_dim}, got {tensor.numel()}")
+        raise ValueError(f"Expected tensor with dim {pert_dim}, got {tensor.numel()}")
 
     if device is not None:
         tensor = tensor.to(device)
     return tensor
 
 
-def combine_additive_deltas(*deltas: torch.Tensor) -> torch.Tensor:
-    if not deltas:
-        raise ValueError("At least one delta tensor is required")
-    total = deltas[0]
-    for delta in deltas[1:]:
-        total = total + delta
-    return total
+def score_target_similarity(
+    target_delta: torch.Tensor,
+    candidate_delta: torch.Tensor,
+    *,
+    metric: str = "cosine",
+    eps: float = 1e-8,
+) -> torch.Tensor:
+    target = ensure_1d_float_tensor(target_delta)
+    candidate = ensure_1d_float_tensor(candidate_delta, pert_dim=target.numel(), device=target.device)
+
+    if metric == "cosine":
+        denom = torch.linalg.vector_norm(target, ord=2) * torch.linalg.vector_norm(candidate, ord=2)
+        if float(denom.detach().cpu().item()) <= eps:
+            return torch.zeros((), device=target.device, dtype=target.dtype)
+        return torch.dot(target, candidate) / denom.clamp_min(eps)
+
+    if metric == "pearson":
+        target_centered = target - target.mean()
+        candidate_centered = candidate - candidate.mean()
+        denom = torch.linalg.vector_norm(target_centered, ord=2) * torch.linalg.vector_norm(candidate_centered, ord=2)
+        if float(denom.detach().cpu().item()) <= eps:
+            return torch.zeros((), device=target.device, dtype=target.dtype)
+        return torch.dot(target_centered, candidate_centered) / denom.clamp_min(eps)
+
+    if metric == "l2":
+        return -torch.linalg.vector_norm(target - candidate, ord=2)
+
+    raise ValueError(f"Unsupported match metric: {metric}")
 
 
-def score_mean_deltas(
-    target_deltas: Mapping[str, torch.Tensor],
-    healthy_deltas: Optional[Mapping[str, torch.Tensor]] = None,
-    healthy_weight: float = 1.0,
-) -> dict[str, torch.Tensor]:
-    if not target_deltas:
-        raise ValueError("target_deltas must not be empty")
+def aggregate_context_scores(context_scores: Mapping[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    if not context_scores:
+        raise ValueError("context_scores must not be empty")
 
-    target_norms = torch.stack([torch.linalg.vector_norm(delta, ord=2) for delta in target_deltas.values()])
-    target_efficacy = target_norms.mean()
-
-    healthy_penalty: torch.Tensor
-    if healthy_deltas:
-        healthy_norms = torch.stack([torch.linalg.vector_norm(delta, ord=2) for delta in healthy_deltas.values()])
-        healthy_penalty = healthy_norms.mean()
+    scores = torch.stack([score.reshape(()) for score in context_scores.values()])
+    if scores.numel() == 1:
+        score_std = torch.zeros((), device=scores.device, dtype=scores.dtype)
     else:
-        healthy_penalty = torch.zeros((), device=target_efficacy.device, dtype=target_efficacy.dtype)
+        score_std = scores.std(unbiased=False)
 
-    score = target_efficacy - float(healthy_weight) * healthy_penalty
     return {
-        "score": score,
-        "target_efficacy": target_efficacy,
-        "healthy_penalty": healthy_penalty,
+        "score": scores.mean(),
+        "score_min": scores.min(),
+        "score_max": scores.max(),
+        "score_std": score_std,
     }
 
 
-def realism_penalty(query_vectors: Sequence[torch.Tensor], library_vectors: torch.Tensor) -> torch.Tensor:
-    if library_vectors.ndim != 2:
-        raise ValueError(f"library_vectors must be rank-2, got shape {tuple(library_vectors.shape)}")
-    if not query_vectors:
-        raise ValueError("query_vectors must not be empty")
+def compute_retrieval_metrics(true_ranks: Sequence[int], topk: Iterable[int] = (1, 5)) -> dict[str, float]:
+    if not true_ranks:
+        raise ValueError("true_ranks must not be empty")
 
-    penalties = []
-    feature_dim = library_vectors.shape[1]
-    for query in query_vectors:
-        query_row = ensure_1d_float_tensor(query, pert_dim=feature_dim, device=library_vectors.device).unsqueeze(0)
-        penalties.append(torch.cdist(query_row, library_vectors).min())
-    return torch.stack(penalties).sum()
+    ranks = np.asarray(true_ranks, dtype=np.int64)
+    if np.any(ranks <= 0):
+        raise ValueError("true_ranks must contain positive 1-indexed ranks")
 
-
-def topk_nearest_neighbors(
-    query_vector: torch.Tensor,
-    library_vectors: torch.Tensor,
-    library_names: Sequence[str],
-    k: int = 5,
-) -> list[dict[str, float | str]]:
-    if library_vectors.ndim != 2:
-        raise ValueError(f"library_vectors must be rank-2, got shape {tuple(library_vectors.shape)}")
-    if library_vectors.shape[0] != len(library_names):
-        raise ValueError(
-            f"library_vectors has {library_vectors.shape[0]} rows but library_names has {len(library_names)} entries"
-        )
-    if k <= 0:
-        raise ValueError("k must be positive")
-
-    query_row = ensure_1d_float_tensor(
-        query_vector,
-        pert_dim=library_vectors.shape[1],
-        device=library_vectors.device,
-    ).unsqueeze(0)
-    distances = torch.cdist(query_row, library_vectors).reshape(-1)
-    top_k = min(int(k), distances.numel())
-    top_vals, top_idx = torch.topk(distances, k=top_k, largest=False)
-
-    neighbors: list[dict[str, float | str]] = []
-    for rank, (dist, idx) in enumerate(zip(top_vals.tolist(), top_idx.tolist()), start=1):
-        neighbors.append(
-            {
-                "name": str(library_names[idx]),
-                "distance": float(dist),
-                "neighbor_rank": rank,
-            }
-        )
-    return neighbors
+    metrics = {
+        "mean_rank": float(ranks.mean()),
+        "median_rank": float(np.median(ranks)),
+        "mrr": float((1.0 / ranks).mean()),
+    }
+    for k in topk:
+        if int(k) <= 0:
+            raise ValueError("topk values must be positive")
+        metrics[f"top_{int(k)}"] = float((ranks <= int(k)).mean())
+    return metrics

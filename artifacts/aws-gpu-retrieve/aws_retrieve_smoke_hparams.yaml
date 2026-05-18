@@ -1,0 +1,143 @@
+input_dim: 11
+hidden_dim: 672
+output_dim: 11
+pert_dim: 5
+batch_dim: 1
+dropout: 0.1
+lr: 0.0001
+loss_fn: mse
+control_pert: TARGET1
+embed_key: X_hvg
+output_space: all
+gene_names:
+- GENE1
+- GENE2
+- GENE3
+- GENE4
+- GENE5
+- GENE6
+- GENE7
+- GENE8
+- GENE9
+- GENE10
+- GENE11
+- GENE12
+- GENE13
+- GENE14
+- GENE15
+- GENE16
+- GENE17
+- GENE18
+- GENE19
+- GENE20
+- GENE21
+- GENE22
+- GENE23
+- GENE24
+- GENE25
+- GENE26
+- GENE27
+- GENE28
+- GENE29
+- GENE30
+- GENE31
+- GENE32
+- GENE33
+- GENE34
+- GENE35
+- GENE36
+- GENE37
+- GENE38
+- GENE39
+- GENE40
+- GENE41
+- GENE42
+- GENE43
+- GENE44
+- GENE45
+- GENE46
+- GENE47
+- GENE48
+- GENE49
+- GENE50
+batch_size: 4
+gene_dim: 50
+hvg_dim: 11
+decoder_cfg:
+  latent_dim: 11
+  gene_dim: 50
+  hidden_dims:
+  - 1024
+  - 1024
+  - 512
+  dropout: 0.1
+  residual_decoder: false
+cell_set_len: 64
+blur: 0.05
+loss: energy
+confidence_head: false
+n_encoder_layers: 4
+n_decoder_layers: 4
+softplus: true
+freeze_pert_backbone: false
+transformer_decoder: false
+finetune_vci_decoder: false
+residual_decoder: false
+batch_encoder: false
+mask_attn: false
+use_effect_gating_token: false
+use_basal_projection: false
+gene_decoder_bool: true
+init_from: null
+mmd_num_chunks: 1
+randomize_mmd_chunks: false
+lora:
+  enable: false
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  bias: none
+  target: auto
+  adapt_mlp: false
+  task_type: FEATURE_EXTRACTION
+  merge_on_eval: false
+wandb_track: true
+weight_decay: 0.0005
+max_steps: 25
+train_seed: 42
+val_freq: 10
+ckpt_every_n_steps: 10
+gradient_clip_val: 10
+gradient_accumulation_steps: 1
+devices: 1
+strategy: auto
+use_mfu: false
+mfu_kwargs:
+  available_flops: 60000000000000.0
+  use_backward: true
+  logging_interval: 10
+  window_size: 2
+cumulative_flops_use_backward: true
+basal_mapping_strategy: random
+predict_residual: true
+distributional_loss: energy
+transformer_backbone_key: llama
+transformer_backbone_kwargs:
+  bidirectional_attention: true
+  max_position_embeddings: 64
+  hidden_size: 672
+  intermediate_size: 2688
+  num_hidden_layers: 4
+  num_attention_heads: 8
+  num_key_value_heads: 8
+  head_dim: 84
+  use_cache: false
+  attention_dropout: 0.0
+  hidden_dropout: 0.0
+  layer_norm_eps: 1.0e-06
+  pad_token_id: 0
+  bos_token_id: 1
+  eos_token_id: 2
+  tie_word_embeddings: false
+  rotary_dim: 0
+  use_rotary_embeddings: false

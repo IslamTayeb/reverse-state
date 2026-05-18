@@ -1,0 +1,2 @@
+cumulative_flops_val_sync,epoch,step,val/decoder_loss,val_loss
+1044973486080.0,0,9,0.26162898540496826,0.4823976159095764

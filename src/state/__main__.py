@@ -12,9 +12,10 @@ from ._cli import (
     run_emb_preprocess,
     run_emb_eval,
     run_tx_infer,
-    run_tx_optimize,
     run_tx_predict,
     run_tx_preprocess_train,
+    run_tx_retrieve,
+    run_tx_retrieve_benchmark,
     run_tx_train,
 )
 
@@ -124,8 +125,10 @@ def main():
                 case "infer":
                     # Run inference using argparse, similar to predict
                     run_tx_infer(args)
-                case "optimize":
-                    run_tx_optimize(args)
+                case "retrieve":
+                    run_tx_retrieve(args)
+                case "retrieve_benchmark":
+                    run_tx_retrieve_benchmark(args)
                 case "preprocess_train":
                     # Run preprocessing using argparse
                     run_tx_preprocess_train(args.adata, args.output, args.num_hvgs)

@@ -113,30 +113,44 @@ state tx infer \
 
 If `--output` ends with `.npy`, only the predictions matrix is written (no .h5ad).
 
-### optimize
+### retrieve
 
-Ranks candidate single drugs and additive pairs on control cohorts from a new AnnData, maximizing
-target-cell transcriptional change while penalizing healthy/off-target change. The command can also
-optimize continuous perturbation vectors and snap them back to the nearest real compounds.
+Ranks known single-drug perturbations by how closely the model reproduces an observed target perturbation.
+The query AnnData must contain both the target perturbation cells and matched control cells so the command
+can compare predicted and observed perturbation deltas in the same context.
 
 ```bash
-state tx optimize \
+state tx retrieve \
   --model-dir /path/to/run \
-  --adata /path/to/control_cells.h5ad \
+  --adata /path/to/query_with_controls.h5ad \
   --pert-col drugname_drugconc \
   --celltype-col cell_type \
-  --target-celltypes tumor \
-  --healthy-celltypes tcell,bcell \
-  --pair-mode topk \
-  --pair-topk 16 \
-  --continuous-steps 200 \
-  --optimize-pair \
-  --output /path/to/ranked_candidates.tsv
+  --target-pert "drug_a_1uM" \
+  --match-metric cosine \
+  --output /path/to/retrieved_candidates.tsv
 ```
 
-The TSV includes discrete singles, additive pairs, and any retrieved nearest-neighbor compounds from
-continuous optimization. When `--continuous-steps > 0`, a sidecar `.continuous.pt` file stores the
-raw optimized perturbation vectors and optimization history.
+By default the score is cosine similarity between the observed target delta and each predicted single-drug delta.
+Use `--celltypes` to restrict the query to specific contexts.
+
+### retrieve_benchmark
+
+Runs a simple inverse-retrieval benchmark over observed perturbations in an AnnData. For each query perturbation,
+the command hides the label, ranks the candidate single drugs, and records where the true perturbation lands.
+
+```bash
+state tx retrieve_benchmark \
+  --model-dir /path/to/run \
+  --adata /path/to/query_with_controls.h5ad \
+  --pert-col drugname_drugconc \
+  --celltype-col cell_type \
+  --match-metric cosine \
+  --output /path/to/retrieval_benchmark.tsv \
+  --rankings-output /path/to/retrieval_rankings.tsv
+```
+
+Benchmark candidates default to perturbations shared between the AnnData and the saved perturbation mapping.
+For rigorous reporting with one-hot perturbation inputs, pass `--candidate-perts` with an explicit train-seen set.
 
 ### ST TOML configuration
 

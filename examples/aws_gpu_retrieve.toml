@@ -1,0 +1,10 @@
+# Temporary config for AWS GPU smoke tests.
+[datasets]
+example = "/home/ubuntu/reverse-state/examples"
+
+[training]
+example = "train"
+
+[zeroshot]
+
+[fewshot]
